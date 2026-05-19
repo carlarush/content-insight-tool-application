@@ -1,9 +1,16 @@
 package com.carla.contentinsighttool.service;
 
+import com.carla.contentinsighttool.entity.CheckinBatch;
+import com.carla.contentinsighttool.entity.ContentIdea;
+import com.carla.contentinsighttool.entity.ThemeEntry;
 import com.carla.contentinsighttool.model.ContentResponse;
 import com.carla.contentinsighttool.model.ThemeResult;
+import com.carla.contentinsighttool.repository.CheckinBatchRepository;
+import com.carla.contentinsighttool.repository.ContentIdeaRepository;
+import com.carla.contentinsighttool.repository.ThemeEntryRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,9 +20,18 @@ import java.util.Map;
 public class ContentIdeaService {
 
     private final OpenAiIdeaService openAiIdeaService;
+    private final CheckinBatchRepository checkinBatchRepository;
+    private final ThemeEntryRepository themeEntryRepository;
+    private final ContentIdeaRepository contentIdeaRepository;
 
-    public ContentIdeaService(OpenAiIdeaService openAiIdeaService) {
+    public ContentIdeaService(OpenAiIdeaService openAiIdeaService,
+                              CheckinBatchRepository checkinBatchRepository,
+                              ThemeEntryRepository themeEntryRepository,
+                              ContentIdeaRepository contentIdeaRepository) {
         this.openAiIdeaService = openAiIdeaService;
+        this.checkinBatchRepository = checkinBatchRepository;
+        this.themeEntryRepository = themeEntryRepository;
+        this.contentIdeaRepository = contentIdeaRepository;
     }
 
     public ContentResponse generateIdeas(List<String> checkins) {
@@ -174,7 +190,40 @@ public class ContentIdeaService {
         String summary = buildSummary(topThemeCounts);
         Map<String, Object> aiIdeas = openAiIdeaService.generateIdeas(topThemeCounts);
 
+        persist(checkins, topThemeCounts, aiIdeas);
+
         return new ContentResponse(summary, themeResults, aiIdeas);
+    }
+
+    private void persist(List<String> checkins, Map<String, Integer> topThemeCounts,
+                         Map<String, Object> aiIdeas) {
+        LocalDateTime now = LocalDateTime.now();
+        CheckinBatch batch = checkinBatchRepository.save(new CheckinBatch(checkins, now));
+
+        for (Map.Entry<String, Integer> entry : topThemeCounts.entrySet()) {
+            themeEntryRepository.save(new ThemeEntry(entry.getKey(), entry.getValue(), now, batch));
+        }
+
+        if (!aiIdeas.containsKey("error")) {
+            saveAiIdeas(aiIdeas, batch, now);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void saveAiIdeas(Map<String, Object> aiIdeas, CheckinBatch batch, LocalDateTime generatedAt) {
+        List<String> contentIdeas = (List<String>) aiIdeas.getOrDefault("contentIdeas", List.of());
+        List<String> podcastIdeas = (List<String>) aiIdeas.getOrDefault("podcastIdeas", List.of());
+        List<String> resourceIdeas = (List<String>) aiIdeas.getOrDefault("resourceIdeas", List.of());
+
+        for (String idea : contentIdeas) {
+            contentIdeaRepository.save(new ContentIdea(idea, "content", generatedAt, batch));
+        }
+        for (String idea : podcastIdeas) {
+            contentIdeaRepository.save(new ContentIdea(idea, "podcast", generatedAt, batch));
+        }
+        for (String idea : resourceIdeas) {
+            contentIdeaRepository.save(new ContentIdea(idea, "resource", generatedAt, batch));
+        }
     }
 
     private void increment(Map<String, Integer> map, String key) {

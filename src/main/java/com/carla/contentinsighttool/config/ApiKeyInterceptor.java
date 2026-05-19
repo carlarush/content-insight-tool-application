@@ -9,7 +9,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 @Component
 public class ApiKeyInterceptor implements HandlerInterceptor {
 
-    @Value("${app.api-key}")
+    @Value("${app.api-key:}")
     private String expectedApiKey;
 
     @Override
